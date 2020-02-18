@@ -1,4 +1,4 @@
-# INF585 VCL
+# Squashy Skinning
 
 ## Setup compilation in command line using the Makefile (in Linux only)
 

@@ -84,8 +84,8 @@ struct scene_model : scene_base
     skinning_structure skinning;
     vcl::mesh_drawable character_visual;
 
+    vcl::buffer<joint_geometry> skeleton_local_current;
     vcl::buffer<joint_geometry> skeleton_current;
-    vcl::buffer<joint_geometry> skeleton_previous;
     vcl::buffer<joint_geometry> skeleton_rest_pose;
 
     // Squashy

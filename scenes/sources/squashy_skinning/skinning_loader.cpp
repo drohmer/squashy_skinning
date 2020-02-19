@@ -57,7 +57,7 @@ void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning
     // Skinning weights
     for(size_t ku=0; ku<N; ++ku)
     {
-        const float u = ku/float(N-1.0f);
+        //const float u = ku/float(N-1.0f);
         for(size_t kv=0; kv<N; ++kv)
         {
             skinning.influence.push_back( {{0, 1.0f}} );
@@ -78,6 +78,94 @@ void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning
 }
 
 
+void load_squishy_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
+{
+    skeleton.connectivity = { {-1,"joint_0"},
+                              { 0,"joint_1"},
+                              { 1,"joint_2"} };
+
+    quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);       // no rotation
+    quaternion q1 = quaternion::axis_angle(normalize(vec3{0,0,1}),3.14f/2.0f*0.8);
+    quaternion q2 = quaternion::axis_angle(normalize(vec3{0,0,1}),3.14f/2.0f); // rotation of pi/2 around z-axis
+
+
+    joint_geometry g0   = {{0.0f,0.0f,0.0f},q0}; // First joint
+    joint_geometry g1_0 = {{0.5f,0.0f,0.0f},q0}; // Second joint, frame 0
+    joint_geometry g1_1 = {{0.5f,0.0f,0.0f},q1}; // Second joint, frame 1
+    joint_geometry g1_2 = {{0.5f,0.0f,0.0f},q2}; // Second joint, frame 2
+    joint_geometry g2   = {{0.5f,0.0f,0.0f},q0}; // Third joint (only used to display bone)
+
+    // Skeleton at rest shape
+    skeleton.rest_pose = { g0, g1_0, g2 };
+
+    // Anim of cylinder skeleton
+    //  Pose 0: straight
+    //  Pose 1: First joint is rotated of pi/2 around z axis
+    //  Pose 2: straight, similar to pose 0
+    std::vector<joint_geometry_time> anim_g0 = {{0,g0},{1,g0},{2,g0},{3,g0}};
+    std::vector<joint_geometry_time> anim_g1 = {{0,g1_0},{1,g1_1},{2,g1_2},{3,g1_0}};
+    std::vector<joint_geometry_time> anim_g2 = {{0,g2},{1,g2},{2,g2},{3,g2}};
+    skeleton.anim = {anim_g0, anim_g1, anim_g2};
+
+    // Cylinder shape
+    mesh cylinder;
+    const size_t N=50;
+    const float r = 0.1f;
+    skinning.influence.clear();
+    for(size_t ku=0; ku<N; ++ku)
+    {
+        for(size_t kv=0; kv<N; ++kv)
+        {
+            const float u = ku/float(N-1.0f);
+            const float v = kv/float(N);
+
+            const float theta = 2*float(M_PI)* v;
+
+            const vec3 p = {u, r*std::cos(theta), r*std::sin(theta)};
+            const vec3 n = {0, std::cos(theta), std::sin(theta)};
+
+            cylinder.position.push_back(p);
+            cylinder.normal.push_back(n);
+        }
+    }
+    cylinder.connectivity = connectivity_grid(N,N,false,true);
+
+
+    // Skinning weights
+    for(size_t ku=0; ku<N; ++ku)
+    {
+        const float u = ku/float(N-1.0f);
+        for(size_t kv=0; kv<N; ++kv)
+        {
+            float w0, w1;
+            const float alpha = 3.0f; // power for skinning weights evolution
+            if(u<0.5f) {
+                w1 = 0.5f*std::pow(u/0.5f, alpha);
+                w0 = 1-w1;
+            }
+            else {
+                w0 = 0.5f*std::pow(1-(u-0.5f)/0.5f, alpha);
+                w1 = 1-w0;
+            }
+
+            skinning_influence influence_bone_0 = {0, w0};
+            skinning_influence influence_bone_1 = {1, w1};
+            skinning.influence.push_back( {influence_bone_0, influence_bone_1} );
+        }
+    }
+
+    skinning.rest_pose = cylinder.position;
+    skinning.rest_pose_normal = cylinder.normal;
+    skinning.deformed  = cylinder;
+
+
+    shape_visual.clear();
+    shape_visual = mesh_drawable(cylinder);
+    shape_visual.shader = shader;
+
+    timer = timer_interval();
+    timer.t_max = 3.0f;
+}
 
 void load_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
 {
@@ -85,8 +173,9 @@ void load_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinni
                               { 0,"joint_1"},
                               { 1,"joint_2"} };
 
-    quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);      // no rotation
+    quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);       // no rotation
     quaternion q1 = quaternion::axis_angle(normalize(vec3{0,0,1}),3.14f/2.0f); // rotation of pi/2 around z-axis
+
 
     joint_geometry g0   = {{0.0f,0.0f,0.0f},q0}; // First joint
     joint_geometry g1_0 = {{0.5f,0.0f,0.0f},q0}; // Second joint, frame 0

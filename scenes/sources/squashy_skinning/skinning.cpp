@@ -12,45 +12,42 @@ buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< bu
 buffer<joint_geometry> local_to_global(const buffer<joint_geometry>& local, const buffer<joint_connectivity>& connectivity);
 
 
-void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_structure& , gui_structure& )
+
+// COmpute the squashy skinning
+void scene_model::squashy_skinning()
 {
-    shader_mesh = shaders["mesh"];
-
-    segment_drawer.init();
-    segment_drawer.uniform_parameter.color = {0.0f,0.0f,0.0f};
-    glEnable(GL_POLYGON_OFFSET_FILL);
-
-    // Init gui parameters
-    gui_param.display_mesh      = true;
-    gui_param.display_wireframe = false;
-    gui_param.display_rest_pose = false;
-    gui_param.display_skeleton_bones  = true;
-    gui_param.display_skeleton_joints = true;
-    gui_param.display_texture = true;
-    gui_param.display_type = display_sphere;
-    gui_param.dual_quaternion = false;
-    gui_param.interpolate = true;
+    const size_t N_vertex = skinning.rest_pose.size();
 
 
-    // Sphere used to display joints
-    sphere = mesh_primitive_sphere(0.005f);
-    sphere.shader = shader_mesh;
+    for(size_t k=0; k<N_vertex; ++k) {
+        const buffer<skinning_influence>& influence = skinning.influence[k];
+        const vec3& p_lbs = skinning.deformed.position[k];
 
-    frame = mesh_primitive_frame();
-    frame.uniform.transform.scaling = 0.02f;
-    frame.shader = shaders["mesh"];
+        // Transformation matrix for skinning
+        //mat4 M = mat4::zero();
+        vec3 p = {0,0,0};
+        for(size_t kb=0; kb<influence.size(); ++kb) // Loop over influencing joints
+        {
+            const int idx = influence[kb].joint;
+            const float w = influence[kb].weight;
 
-    // Load initial model
-    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
+            const vec3 v = skeleton_speed[idx];
+            const float vn = norm(v);
+            const mat3 S = mat3(1.0f+vn/5.0f,0,0,
+                                0,1.0f/(1+vn/5.0f),0,
+                                0,0,1);
 
-    const auto skeleton_geometry_local  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
-    skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
-    skeleton_current = local_to_global(skeleton_geometry_local, skeleton.connectivity);
-    skeleton_speed.resize(skeleton_current.size());
-    skeleton_acceleration.resize(skeleton_current.size());
-    skeleton_velocity_tracker.resize(skeleton_current.size());
+            const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
+            const vec3 p_c = skeleton_current[idx].p;
 
+            p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
+        }
+
+        skinning.deformed.position[k] = p;
+    }
 }
+
+
 
 
 buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< buffer<joint_geometry_time> >& animation, bool interpolate)
@@ -103,39 +100,7 @@ buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< bu
     return skeleton;
 }
 
-// COmpute the squashy skinning
-void scene_model::squashy_skinning()
-{
-    const size_t N_vertex = skinning.rest_pose.size();
 
-
-    for(size_t k=0; k<N_vertex; ++k) {
-        const buffer<skinning_influence>& influence = skinning.influence[k];
-        const vec3& p_lbs = skinning.deformed.position[k];
-
-        // Transformation matrix for skinning
-        //mat4 M = mat4::zero();
-        vec3 p = {0,0,0};
-        for(size_t kb=0; kb<influence.size(); ++kb) // Loop over influencing joints
-        {
-            const int idx = influence[kb].joint;
-            const float w = influence[kb].weight;
-
-            const vec3 v = skeleton_speed[idx];
-            const float vn = norm(v);
-            const mat3 S = mat3(std::min(1+vn/10.0f,2.0f),0,0,
-                                0,std::max(1-vn/10.0f,0.0f),0,
-                                0,0,1);
-
-            const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
-            const vec3 p_c = skeleton_current[idx].p;
-
-            p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
-        }
-
-        skinning.deformed.position[k] = p;
-    }
-}
 
 void scene_model::compute_skinning()
 {
@@ -300,13 +265,13 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
     set_gui();
     const float t = timer.t;
 
-    const auto skeleton_geometry_local  = interpolate_skeleton_at_time(t, skeleton.anim, gui_param.interpolate);
 
     if(!is_interactive)
     {
-        skeleton_previous = skeleton_current;
-        skeleton_current = local_to_global(skeleton_geometry_local, skeleton.connectivity);
+        skeleton_local_current = interpolate_skeleton_at_time(t, skeleton.anim, gui_param.interpolate);
     }
+
+    skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
 
     for(int k=0; k<int(skeleton_current.size()); ++k) {
         skeleton_velocity_tracker[k].add( skeleton_current[k].p, t );
@@ -372,14 +337,14 @@ void scene_model::set_gui()
     bool click_bar = ImGui::RadioButton("Bar", &gui_param.display_type, display_bar); ImGui::SameLine();
     bool click_character = ImGui::RadioButton("Character", &gui_param.display_type, display_character);
 
-    if(click_sphere)  load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
-    if(click_cylinder)  load_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    if(click_sphere)    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    if(click_cylinder)  load_squishy_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
     if(click_bar)       load_rectangle_data(skeleton, skinning, character_visual, timer, shader_mesh);
     if(click_character) load_character_data(skeleton, skinning, character_visual, timer, shader_mesh);
 
     if(click_cylinder || click_bar || click_character) {
-        const auto skeleton_geometry_local  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
-        skeleton_current = local_to_global(skeleton_geometry_local, skeleton.connectivity);
+        skeleton_local_current  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
+        skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
         skeleton_speed.resize(skeleton_current.size());
         skeleton_acceleration.resize(skeleton_current.size());
         skeleton_velocity_tracker.resize(skeleton_current.size());
@@ -398,6 +363,47 @@ void scene_model::set_gui()
 
     if(stop)  timer.stop();
     if(start) timer.start();
+}
+
+
+void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_structure& , gui_structure& )
+{
+    shader_mesh = shaders["mesh"];
+
+    segment_drawer.init();
+    segment_drawer.uniform_parameter.color = {0.0f,0.0f,0.0f};
+    glEnable(GL_POLYGON_OFFSET_FILL);
+
+    // Init gui parameters
+    gui_param.display_mesh      = true;
+    gui_param.display_wireframe = false;
+    gui_param.display_rest_pose = false;
+    gui_param.display_skeleton_bones  = true;
+    gui_param.display_skeleton_joints = true;
+    gui_param.display_texture = true;
+    gui_param.display_type = display_sphere;
+    gui_param.dual_quaternion = false;
+    gui_param.interpolate = true;
+
+
+    // Sphere used to display joints
+    sphere = mesh_primitive_sphere(0.005f);
+    sphere.shader = shader_mesh;
+
+    frame = mesh_primitive_frame();
+    frame.uniform.transform.scaling = 0.02f;
+    frame.shader = shaders["mesh"];
+
+    // Load initial model
+    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
+
+    skeleton_local_current  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
+    skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
+    skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
+    skeleton_speed.resize(skeleton_current.size());
+    skeleton_acceleration.resize(skeleton_current.size());
+    skeleton_velocity_tracker.resize(skeleton_current.size());
+
 }
 
 
@@ -452,16 +458,10 @@ void scene_model::mouse_move(scene_structure& scene, GLFWwindow* window)
         const vec2 cursor_tr = cursor-cursor_prev;
         const vec3 tr = scene.camera.orientation * vec3(cursor_tr.x, cursor_tr.y, 0.0f);
 
-        vec3& p0 = skeleton_current[picked_object].p;
+        vec3& p0 = skeleton_local_current[picked_object].p;
         p0 += tr;
 
-//        // Compute intersection between current ray and the plane orthogonal to the view direction and passing by the selected object
-//        const ray r = picking_ray(scene.camera, cursor);
-//        vec3& p0 = skeleton_current[picked_object].p;
-//        const picking_info info = ray_intersect_plane(r,n,p0);
 
-        // translate the position
-        //p0 = info.intersection;
     }
 
     cursor_prev = cursor;

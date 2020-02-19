@@ -33,12 +33,23 @@ void scene_model::squashy_skinning()
 
             const vec3 v = skeleton_speed[idx];
             const float vn = norm(v);
-            const mat3 S = mat3(1.0f+vn/5.0f,0,0,
-                                0,1.0f/(1+vn/5.0f),0,
-                                0,0,1);
+
+            float const lambda = vn * scaling_power;
+
+            const mat3 S = mat3(1.0f+lambda,0,0,
+                                0,std::sqrt(1.0f/(1+lambda)),0,
+                                0,0,std::sqrt(1.0f/(1+lambda)));
 
             const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
-            const vec3 p_c = skeleton_current[idx].p;
+            vec3 p_c = skeleton_current[idx].p;
+
+            // Hack cylinder
+//            if(skeleton_current.size()>2) {
+//                if(idx==0)
+//                    p_c = 0.5f*(skeleton_current[0].p+skeleton_current[1].p);
+//                if(idx==1)
+//                    p_c = 0.5f*(skeleton_current[1].p+skeleton_current[2].p);
+//            }
 
             p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
         }
@@ -193,7 +204,7 @@ void scene_model::compute_skinning_dual_quaternion()
 buffer<joint_geometry> local_to_global(const buffer<joint_geometry>& local, const buffer<joint_connectivity>& connectivity)
 {
     const size_t N = connectivity.size();
-    assert(local.size()==connectivity.size());
+    assert_vcl_no_msg(local.size()==connectivity.size());
     std::vector<joint_geometry> global;
     global.resize(N);
     global[0] = local[0];
@@ -275,6 +286,8 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
 
     for(int k=0; k<int(skeleton_current.size()); ++k) {
         skeleton_velocity_tracker[k].add( skeleton_current[k].p, t );
+        skeleton_angular_velocity_tracker[k].add( skeleton_current[k].r, t );
+
         skeleton_speed[k] = skeleton_velocity_tracker[k].speed_avg();
         skeleton_acceleration[k] = skeleton_velocity_tracker[k].acceleration_avg();
     }
@@ -320,6 +333,8 @@ void scene_model::set_gui()
     ImGui::SliderFloat("Timer",  &timer.t, timer.t_min, timer.t_max, "%.2f s");
     ImGui::SliderFloat("Time scale", &timer.scale, 0.05f, 6.0f, "%.2f s");
 
+    ImGui::SliderFloat("Scaling power", &scaling_power, 0.0f, 2.0f, "%.2f s");
+
     ImGui::Text("Display Mesh:");
     ImGui::Checkbox("Mesh", &gui_param.display_mesh); ImGui::SameLine();
     ImGui::Checkbox("Wireframe", &gui_param.display_wireframe); ImGui::SameLine();
@@ -338,17 +353,12 @@ void scene_model::set_gui()
     bool click_character = ImGui::RadioButton("Character", &gui_param.display_type, display_character);
 
     if(click_sphere)    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
-    if(click_cylinder)  load_squishy_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    if(click_cylinder)  load_diagonal_translate_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
     if(click_bar)       load_rectangle_data(skeleton, skinning, character_visual, timer, shader_mesh);
     if(click_character) load_character_data(skeleton, skinning, character_visual, timer, shader_mesh);
 
-    if(click_cylinder || click_bar || click_character) {
-        skeleton_local_current  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
-        skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
-        skeleton_speed.resize(skeleton_current.size());
-        skeleton_acceleration.resize(skeleton_current.size());
-        skeleton_velocity_tracker.resize(skeleton_current.size());
-        skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
+    if(click_sphere || click_cylinder || click_bar || click_character) {
+        resize_structure();
     }
 
     ImGui::Checkbox("Interactive", &is_interactive);
@@ -365,6 +375,17 @@ void scene_model::set_gui()
     if(start) timer.start();
 }
 
+
+void scene_model::resize_structure()
+{
+    skeleton_local_current  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
+    skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
+    skeleton_speed.resize(skeleton_current.size());
+    skeleton_acceleration.resize(skeleton_current.size());
+    skeleton_velocity_tracker.resize(skeleton_current.size());
+    skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
+    skeleton_angular_velocity_tracker.resize(skeleton_current.size());
+}
 
 void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_structure& , gui_structure& )
 {
@@ -397,12 +418,7 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
     // Load initial model
     load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
 
-    skeleton_local_current  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
-    skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
-    skeleton_current = local_to_global(skeleton_local_current, skeleton.connectivity);
-    skeleton_speed.resize(skeleton_current.size());
-    skeleton_acceleration.resize(skeleton_current.size());
-    skeleton_velocity_tracker.resize(skeleton_current.size());
+    resize_structure();
 
 }
 

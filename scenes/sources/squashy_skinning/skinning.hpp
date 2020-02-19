@@ -92,13 +92,17 @@ struct scene_model : scene_base
     vcl::buffer<vcl::vec3> skeleton_speed;
     vcl::buffer<vcl::vec3> skeleton_acceleration;
 
-    vcl::buffer<vcl::velocity_tracker_structure> skeleton_velocity_tracker;
+    vcl::buffer<vcl::velocity_tracker_structure<vcl::vec3> > skeleton_velocity_tracker;
+    vcl::buffer<vcl::velocity_tracker_structure<quaternion> > skeleton_angular_velocity_tracker;
 
     bool is_interactive = true;
-    vcl::velocity_tracker_structure velocity_tracker;
+
+    float scaling_power = 1.0f;
+
     void compute_skinning();
     void compute_skinning_dual_quaternion();
     void squashy_skinning();
+    void resize_structure(); // resize all skeleton when changing states
 
     vcl::segment_drawable_immediate_mode segment_drawer;
     vcl::mesh_drawable sphere;

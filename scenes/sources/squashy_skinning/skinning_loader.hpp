@@ -16,7 +16,10 @@ void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning
 void load_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
 void load_rectangle_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
 void load_character_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
-void load_squishy_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
+
+void load_diagonal_translate_cylinder_data (skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
+void load_bending_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader);
+
 
 //Map correspondance between skinning weights and vertices (that have been duplicated to load the texture coordinates)
 template <typename T>

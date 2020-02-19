@@ -86,6 +86,7 @@ struct scene_model : scene_base
 
     vcl::buffer<joint_geometry> skeleton_current;
     vcl::buffer<joint_geometry> skeleton_previous;
+    vcl::buffer<joint_geometry> skeleton_rest_pose;
 
     // Squashy
     vcl::buffer<vcl::vec3> skeleton_speed;
@@ -95,9 +96,9 @@ struct scene_model : scene_base
 
     bool is_interactive = true;
     vcl::velocity_tracker_structure velocity_tracker;
-    void compute_skinning(skinning_structure& skinning,
-                          const vcl::buffer<joint_geometry>& skeleton_current,
-                          const vcl::buffer<joint_geometry>& skeleton_rest_pose);
+    void compute_skinning();
+    void compute_skinning_dual_quaternion();
+    void squashy_skinning();
 
     vcl::segment_drawable_immediate_mode segment_drawer;
     vcl::mesh_drawable sphere;
@@ -108,6 +109,7 @@ struct scene_model : scene_base
     gui_parameters gui_param;
 
     vcl::timer_interval timer;
+    vcl::vec2 cursor_prev;
 
     int picked_object = 0;
 };

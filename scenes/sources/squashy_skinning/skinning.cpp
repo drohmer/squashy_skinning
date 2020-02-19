@@ -44,6 +44,7 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
     load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
 
     const auto skeleton_geometry_local  = interpolate_skeleton_at_time(0, skeleton.anim, gui_param.interpolate);
+    skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
     skeleton_current = local_to_global(skeleton_geometry_local, skeleton.connectivity);
     skeleton_speed.resize(skeleton_current.size());
     skeleton_acceleration.resize(skeleton_current.size());
@@ -102,9 +103,41 @@ buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< bu
     return skeleton;
 }
 
-void scene_model::compute_skinning(skinning_structure& skinning,
-                                   const buffer<joint_geometry>& skeleton_current,
-                                   const buffer<joint_geometry>& skeleton_rest_pose)
+// COmpute the squashy skinning
+void scene_model::squashy_skinning()
+{
+    const size_t N_vertex = skinning.rest_pose.size();
+
+
+    for(size_t k=0; k<N_vertex; ++k) {
+        const buffer<skinning_influence>& influence = skinning.influence[k];
+        const vec3& p_lbs = skinning.deformed.position[k];
+
+        // Transformation matrix for skinning
+        //mat4 M = mat4::zero();
+        vec3 p = {0,0,0};
+        for(size_t kb=0; kb<influence.size(); ++kb) // Loop over influencing joints
+        {
+            const int idx = influence[kb].joint;
+            const float w = influence[kb].weight;
+
+            const vec3 v = skeleton_speed[idx];
+            const float vn = norm(v);
+            const mat3 S = mat3(std::min(1+vn/10.0f,2.0f),0,0,
+                                0,std::max(1-vn/10.0f,0.0f),0,
+                                0,0,1);
+
+            const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
+            const vec3 p_c = skeleton_current[idx].p;
+
+            p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
+        }
+
+        skinning.deformed.position[k] = p;
+    }
+}
+
+void scene_model::compute_skinning()
 {
 
     const size_t N_vertex = skinning.rest_pose.size();
@@ -142,41 +175,14 @@ void scene_model::compute_skinning(skinning_structure& skinning,
         skinning.deformed.normal[k] = {n1.x, n1.y, n1.z};
     }
 
+    squashy_skinning();
 
 
-    for(size_t k=0; k<N_vertex; ++k) {
-        const buffer<skinning_influence>& influence = skinning.influence[k];
-        const vec3& p_lbs = skinning.deformed.position[k];
-
-        // Transformation matrix for skinning
-        //mat4 M = mat4::zero();
-        vec3 p = {0,0,0};
-        for(size_t kb=0; kb<influence.size(); ++kb) // Loop over influencing joints
-        {
-            const int idx = influence[kb].joint;
-            const float w = influence[kb].weight;
-
-            const vec3 v = skeleton_speed[idx];
-            const float vn = norm(v);
-            const mat3 S = mat3(std::min(1+vn/10.0f,2.0f),0,0,
-                                0,std::max(1-vn/10.0f,0.0f),0,
-                                0,0,1);
-
-            const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
-            const vec3 p_c = skeleton_current[idx].p;
-
-            p += w*(R*S*transpose(R)*(p_lbs-p_c)+p_c);
-        }
-
-        skinning.deformed.position[k] = p;
-    }
 
 }
 
 
-void compute_skinning_dual_quaternion(skinning_structure& skinning,
-                                      const buffer<joint_geometry>& skeleton_current,
-                                      const buffer<joint_geometry>& skeleton_rest_pose)
+void scene_model::compute_skinning_dual_quaternion()
 {
     const size_t N_vertex = skinning.rest_pose.size();
     for(size_t k=0; k<N_vertex; ++k)
@@ -212,6 +218,8 @@ void compute_skinning_dual_quaternion(skinning_structure& skinning,
         skinning.deformed.normal[k] = d.q.apply(n0);
 
     }
+
+    squashy_skinning();
 }
 
 
@@ -288,15 +296,12 @@ void display_frames(const buffer<joint_geometry>& skeleton_geometry,
 void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_structure& scene, gui_structure& )
 {
 
-
-
-
     timer.update();
     set_gui();
     const float t = timer.t;
 
     const auto skeleton_geometry_local  = interpolate_skeleton_at_time(t, skeleton.anim, gui_param.interpolate);
-    const auto skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
+
     if(!is_interactive)
     {
         skeleton_previous = skeleton_current;
@@ -315,9 +320,9 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
 
 
     if(gui_param.dual_quaternion)
-        compute_skinning_dual_quaternion(skinning, skeleton_current, skeleton_rest_pose);
+        compute_skinning_dual_quaternion();
     else
-        compute_skinning(skinning, skeleton_current, skeleton_rest_pose);
+        compute_skinning();
     character_visual.update_position(skinning.deformed.position);
 
 
@@ -378,6 +383,7 @@ void scene_model::set_gui()
         skeleton_speed.resize(skeleton_current.size());
         skeleton_acceleration.resize(skeleton_current.size());
         skeleton_velocity_tracker.resize(skeleton_current.size());
+        skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
     }
 
     ImGui::Checkbox("Interactive", &is_interactive);
@@ -440,17 +446,25 @@ void scene_model::mouse_move(scene_structure& scene, GLFWwindow* window)
         // ************************************************************************************** //
 
         // Get vector orthogonal to camera orientation
-        const mat4 M = scene.camera.camera_matrix();
-        const vec3 n = {M(0,2),M(1,2),M(2,2)};
+        //const mat4 M = scene.camera.camera_matrix();
+        //const vec3 n = {M(0,2),M(1,2),M(2,2)};
 
-        // Compute intersection between current ray and the plane orthogonal to the view direction and passing by the selected object
-        const ray r = picking_ray(scene.camera, cursor);
+        const vec2 cursor_tr = cursor-cursor_prev;
+        const vec3 tr = scene.camera.orientation * vec3(cursor_tr.x, cursor_tr.y, 0.0f);
+
         vec3& p0 = skeleton_current[picked_object].p;
-        const picking_info info = ray_intersect_plane(r,n,p0);
+        p0 += tr;
+
+//        // Compute intersection between current ray and the plane orthogonal to the view direction and passing by the selected object
+//        const ray r = picking_ray(scene.camera, cursor);
+//        vec3& p0 = skeleton_current[picked_object].p;
+//        const picking_info info = ray_intersect_plane(r,n,p0);
 
         // translate the position
-        p0 = info.intersection;
+        //p0 = info.intersection;
     }
+
+    cursor_prev = cursor;
 }
 
 

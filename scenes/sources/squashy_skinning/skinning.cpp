@@ -286,7 +286,7 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
 
     for(int k=0; k<int(skeleton_current.size()); ++k) {
         skeleton_velocity_tracker[k].add( skeleton_current[k].p, t );
-        skeleton_angular_velocity_tracker[k].add( skeleton_current[k].r, t );
+        //skeleton_angular_velocity_tracker[k].add( skeleton_current[k].r, t );
 
         skeleton_speed[k] = skeleton_velocity_tracker[k].speed_avg();
         skeleton_acceleration[k] = skeleton_velocity_tracker[k].acceleration_avg();

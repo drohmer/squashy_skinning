@@ -29,6 +29,10 @@ void mesh_drawable::update_normal(const vcl::buffer<vec3>& new_normal)
 {
     data.update_normal(new_normal);
 }
+void mesh_drawable::update_color(const vcl::buffer<vec4>& new_color)
+{
+    data.update_color(new_color);
+}
 
 
 void draw(const mesh_drawable& drawable, const camera_scene& camera)

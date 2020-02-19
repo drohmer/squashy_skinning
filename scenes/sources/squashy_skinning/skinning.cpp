@@ -3,21 +3,109 @@
 #ifdef SCENE_SQUASHY_SKINNING
 
 #include "skinning_loader.hpp"
-
+#include "helper.hpp"
 
 using namespace vcl;
 
 
-buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< buffer<joint_geometry_time> >& animation, bool interpolate);
-buffer<joint_geometry> local_to_global(const buffer<joint_geometry>& local, const buffer<joint_connectivity>& connectivity);
+
+/** This function is work in progress ... */
+// Compute the flappy example
+void scene_model::flappy_skinning()
+{
+    if(weight_flappy.size()!=skinning.rest_pose.size() || weight_squashy.size()!=skinning.rest_pose.size())
+        return ;
 
 
 
-// COmpute the squashy skinning
+    const size_t N_vertex = skinning.rest_pose.size();
+
+    for(size_t k=0; k<N_vertex; ++k) {
+        const buffer<skinning_influence>& influence = skinning.influence[k];
+        const vec3& p_lbs = skinning.deformed.position[k];
+
+        vec3 const& n = skinning.deformed.normal[k];
+
+        // Transformation matrix for skinning
+        //mat4 M = mat4::zero();
+        vec3 p = {0,0,0};
+        for(size_t kb=0; kb<influence.size(); ++kb) // Loop over influencing joints
+        {
+
+            const int idx = influence[kb].joint;
+            const float w = influence[kb].weight;
+
+            vec3 v = skeleton_speed[idx];
+            vec3 acceleration = skeleton_acceleration[idx]*0.4f;
+
+            float an = norm(acceleration);
+            if(an>1.0f)
+                an = 1.0f;
+
+            float const lambda = an * flapping_power;
+
+            if(norm(v)>2)
+                v = v/norm(v)*2;
+
+            const float a = dot(n,v) * 0.02f;
+
+            //Flappy / Squashy
+            const vec3 flappy = - lambda * acceleration / 50.0f;
+            p += w*(  p_lbs + weight_flappy[k]*flappy + weight_squashy[k]*squashing_power * a * v );
+
+
+
+//            if(k==0)
+//                std::cout<<v<<std::endl;
+
+
+
+
+
+
+
+            //            //Squashy
+            //            const mat3 S = mat3(1.0f+lambda,0,0,
+            //                                0,std::sqrt(1.0f/(1+lambda)),0,
+            //                                0,0,std::sqrt(1.0f/(1+lambda)));
+            //            const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
+            //            vec3 p_c = skeleton_current[idx].p;
+
+
+
+            // Hack cylinder
+            //            if(skeleton_current.size()>2) {
+            //                if(idx==0)
+            //                    p_c = 0.5f*(skeleton_current[0].p+skeleton_current[1].p);
+            //                if(idx==1)
+            //                    p_c = 0.5f*(skeleton_current[1].p+skeleton_current[2].p);
+            //            }
+
+            //p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
+        }
+
+        skinning.deformed.position[k] = p;
+    }
+
+
+
+//    // Rotation
+//    {
+//        const vec3 speed0 = skeleton_speed[0];
+//        const vec3 p0 = skeleton_current[0].p;
+//        const mat3 R = rotation_between_vector_mat3({1,0,0}, -speed0);
+//        for(int k=0; k<skinning.deformed.position.size(); ++k) {
+//            const vec3 p = skinning.deformed.position[k];
+//            skinning.deformed.position[k] = R * (p-p0)+p0;
+//        }
+//    }
+}
+
+/** This function is work in progress ... */
+// Compute the squashy skinning
 void scene_model::squashy_skinning()
 {
     const size_t N_vertex = skinning.rest_pose.size();
-
 
     for(size_t k=0; k<N_vertex; ++k) {
         const buffer<skinning_influence>& influence = skinning.influence[k];
@@ -34,22 +122,25 @@ void scene_model::squashy_skinning()
             const vec3 v = skeleton_speed[idx];
             const float vn = norm(v);
 
-            float const lambda = vn * scaling_power;
+            float const lambda = vn * squashing_power;
 
+
+            //Squashy
             const mat3 S = mat3(1.0f+lambda,0,0,
                                 0,std::sqrt(1.0f/(1+lambda)),0,
                                 0,0,std::sqrt(1.0f/(1+lambda)));
-
             const mat3 R = rotation_between_vector_mat3({1,0,0}, normalize(v));
             vec3 p_c = skeleton_current[idx].p;
 
+
+
             // Hack cylinder
-//            if(skeleton_current.size()>2) {
-//                if(idx==0)
-//                    p_c = 0.5f*(skeleton_current[0].p+skeleton_current[1].p);
-//                if(idx==1)
-//                    p_c = 0.5f*(skeleton_current[1].p+skeleton_current[2].p);
-//            }
+            //            if(skeleton_current.size()>2) {
+            //                if(idx==0)
+            //                    p_c = 0.5f*(skeleton_current[0].p+skeleton_current[1].p);
+            //                if(idx==1)
+            //                    p_c = 0.5f*(skeleton_current[1].p+skeleton_current[2].p);
+            //            }
 
             p += w*(  R*S*transpose(R)*  (p_lbs-p_c)+p_c);
         }
@@ -61,55 +152,7 @@ void scene_model::squashy_skinning()
 
 
 
-buffer<joint_geometry> interpolate_skeleton_at_time(float time, const buffer< buffer<joint_geometry_time> >& animation, bool interpolate)
-{
-    // Compute skeleton corresponding to a given time from key poses
-    // - animation[k] corresponds to the kth animated joint (vector of joint geometry at given time)
-    // - animation[k][i] corresponds to the ith pose of the kth joint
-    //      - animation[k][i].time         -> corresponding time
-    //      - animation[k][i].geometry.p/r -> corresponding position, rotation
 
-    size_t N_joint = animation.size();
-    buffer<joint_geometry> skeleton;
-    skeleton.resize(N_joint);
-
-    for(size_t k_joint=0; k_joint<N_joint; ++k_joint)
-    {
-        const buffer<joint_geometry_time>& joint_anim = animation[k_joint];
-
-        // Find the index corresponding to the current time
-        size_t k_current = 0;
-        assert_vcl_no_msg(joint_anim.size()>k_current+1);
-        while( time>joint_anim[k_current+1].time ) {
-            ++k_current;
-            assert_vcl_no_msg(joint_anim.size()>k_current+1);
-        }
-
-
-        if(interpolate){
-            const joint_geometry& g1 = joint_anim[k_current].geometry;
-            const joint_geometry& g2 = joint_anim[k_current+1].geometry;
-            const float t1 = joint_anim[k_current].time;
-            const float t2 = joint_anim[k_current+1].time;
-
-            const float alpha = (time-t1)/(t2-t1);
-            const vec3 p = (1.0f-alpha)*g1.p+alpha*g2.p;
-
-            joint_geometry g;
-            g.p = p;
-            g.r = slerp(g1.r,g2.r,alpha);
-
-            skeleton[k_joint] = g;
-        }
-        else {
-            const joint_geometry current_geometry = joint_anim[k_current].geometry;
-            skeleton[k_joint] = current_geometry;
-        }
-
-    }
-
-    return skeleton;
-}
 
 
 
@@ -117,6 +160,7 @@ void scene_model::compute_skinning()
 {
 
     const size_t N_vertex = skinning.rest_pose.size();
+
     for(size_t k=0; k<N_vertex; ++k)
     {
         const buffer<skinning_influence>& influence = skinning.influence[k];
@@ -151,7 +195,11 @@ void scene_model::compute_skinning()
         skinning.deformed.normal[k] = {n1.x, n1.y, n1.z};
     }
 
-    squashy_skinning();
+    if(is_flapping)
+        flappy_skinning();
+    else
+        squashy_skinning();
+
 
 
 
@@ -195,78 +243,18 @@ void scene_model::compute_skinning_dual_quaternion()
 
     }
 
-    squashy_skinning();
+    if(is_flapping)
+        flappy_skinning();
+    else
+        squashy_skinning();
 }
 
 
 
-// Convert skeleton from local to global coordinates
-buffer<joint_geometry> local_to_global(const buffer<joint_geometry>& local, const buffer<joint_connectivity>& connectivity)
-{
-    const size_t N = connectivity.size();
-    assert_vcl_no_msg(local.size()==connectivity.size());
-    std::vector<joint_geometry> global;
-    global.resize(N);
-    global[0] = local[0];
-
-    // T_global = T_global^parent * T_local (T: 4x4 transformation matrix)
-    //   => R_global = R_global^parent * R_local
-    //   => P_global = R_global^parent * P_local + P_global^parent
-    for(size_t k=1; k<N; ++k)
-    {
-        const int parent = connectivity[k].parent;
-        global[k].r = global[parent].r * local[k].r;
-        global[k].p = global[parent].r.apply(local[k].p) + global[parent].p;
-    }
-
-    return global;
-}
 
 
-void display_skeleton(const buffer<joint_geometry>& skeleton_geometry,
-                      const buffer<joint_connectivity>& skeleton_connectivity,
-                      const std::map<std::string,GLuint>& shaders,
-                      const scene_structure& scene,
-                      segment_drawable_immediate_mode& segment_drawer)
-{
-    const size_t N = skeleton_geometry.size();
-    for(size_t k=1; k<N; ++k)
-    {
-        int parent = skeleton_connectivity[k].parent;
-        const vec3& p1 = skeleton_geometry[parent].p;
-        const vec3& p2 = skeleton_geometry[k].p;
 
-        segment_drawer.uniform_parameter.p1 = p1;
-        segment_drawer.uniform_parameter.p2 = p2;
-        segment_drawer.draw(shaders.at("segment_im"),scene.camera);
-    }
-}
 
-void display_joints(const buffer<joint_geometry>& skeleton_geometry,
-                    const scene_structure& scene,
-                    mesh_drawable& sphere)
-{
-    const size_t N = skeleton_geometry.size();
-    for(size_t k=0; k<N; ++k)
-    {
-        sphere.uniform.transform.translation = skeleton_geometry[k].p;
-        draw(sphere, scene.camera);
-    }
-
-}
-
-void display_frames(const buffer<joint_geometry>& skeleton_geometry,
-                    const scene_structure& scene,
-                    mesh_drawable& frame)
-{
-    const size_t N = skeleton_geometry.size();
-    for(size_t k=0; k<N; ++k)
-    {
-        frame.uniform.transform.rotation = skeleton_geometry[k].r.matrix();
-        frame.uniform.transform.translation = skeleton_geometry[k].p;
-        draw(frame, scene.camera);
-    }
-}
 
 
 void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_structure& scene, gui_structure& )
@@ -305,6 +293,11 @@ void scene_model::frame_draw(std::map<std::string,GLuint>& shaders, scene_struct
 
 
 
+//    sphere.uniform.transform.translation = vec3(0,0.05,0);
+//    sphere.uniform.transform.scaling = 0.25f/0.005f;
+//    draw(sphere, scene.camera);
+//    sphere.uniform.transform.scaling = 1.0f;
+
 
     character_visual.update_normal(skinning.deformed.normal);
 
@@ -333,7 +326,8 @@ void scene_model::set_gui()
     ImGui::SliderFloat("Timer",  &timer.t, timer.t_min, timer.t_max, "%.2f s");
     ImGui::SliderFloat("Time scale", &timer.scale, 0.05f, 6.0f, "%.2f s");
 
-    ImGui::SliderFloat("Scaling power", &scaling_power, 0.0f, 2.0f, "%.2f s");
+    ImGui::SliderFloat("Flapping power", &flapping_power, 0.0f, 20.0f, "%.2f s", 2.0f);
+    ImGui::SliderFloat("Squashing power", &squashing_power, 0.0f, 20.0f, "%.2f s", 2.0f);
 
     ImGui::Text("Display Mesh:");
     ImGui::Checkbox("Mesh", &gui_param.display_mesh); ImGui::SameLine();
@@ -347,17 +341,24 @@ void scene_model::set_gui()
 
 
     ImGui::Text("Shape type:");
-    bool click_sphere = ImGui::RadioButton("Sphere", &gui_param.display_type, display_sphere); ImGui::SameLine();
-    bool click_cylinder = ImGui::RadioButton("Cylinder", &gui_param.display_type, display_cylinder); ImGui::SameLine();
-    bool click_bar = ImGui::RadioButton("Bar", &gui_param.display_type, display_bar); ImGui::SameLine();
+    bool click_sphere    = ImGui::RadioButton("Sphere", &gui_param.display_type, display_sphere); ImGui::SameLine();
+    bool click_cylinder_bending   = ImGui::RadioButton("Cylinder Bending", &gui_param.display_type, display_cylinder_bending); ImGui::SameLine();
+    bool click_cylinder_translate = ImGui::RadioButton("Cylinder Translate", &gui_param.display_type, display_cylinder_translate); ImGui::SameLine();
+    bool click_rondinella = ImGui::RadioButton("Rondinella", &gui_param.display_type, display_rondinella);
+
+    bool click_bar       = ImGui::RadioButton("Bar", &gui_param.display_type, display_bar); ImGui::SameLine();
     bool click_character = ImGui::RadioButton("Character", &gui_param.display_type, display_character);
 
-    if(click_sphere)    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
-    if(click_cylinder)  load_diagonal_translate_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
-    if(click_bar)       load_rectangle_data(skeleton, skinning, character_visual, timer, shader_mesh);
-    if(click_character) load_character_data(skeleton, skinning, character_visual, timer, shader_mesh);
 
-    if(click_sphere || click_cylinder || click_bar || click_character) {
+    if(click_sphere)    load_sphere_data(skeleton, skinning, weight_flappy, character_visual, timer, shader_mesh);
+    if(click_cylinder_bending)  load_bending_cylinder_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    if(click_cylinder_translate)  load_diagonal_translate_cylinder_data(skeleton, skinning, weight_flappy, character_visual, timer, shader_mesh);
+    if(click_rondinella)  load_rondinella_data(skeleton, skinning, weight_flappy, weight_squashy, character_visual, timer, shader_mesh);
+
+    if(click_bar)       load_rectangle_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    if(click_character) load_character_data(skeleton, skinning, weight_flappy, character_visual, timer, shader_mesh);
+
+    if(click_sphere || click_cylinder_bending || click_cylinder_translate || click_rondinella || click_bar || click_character) {
         resize_structure();
     }
 
@@ -366,6 +367,32 @@ void scene_model::set_gui()
     ImGui::Checkbox("Rest pose", &gui_param.display_rest_pose);
     ImGui::Checkbox("Dual quaternion", &gui_param.dual_quaternion);
     ImGui::Checkbox("Interpolate skeleton", &gui_param.interpolate);
+
+    ImGui::Checkbox("Flapping", &is_flapping);
+//    ImGui::Checkbox("speed", &is_speed);
+//    ImGui::Checkbox("acceleration", &is_acceleration);
+
+
+    if( ImGui::Button("Color white") ) {
+        for(int k=0; k<skinning.deformed.position.size(); ++k) {
+            skinning.deformed.color[k] = {1.0f, 1.0f, 1.0f, 0};
+            character_visual.update_color(skinning.deformed.color);
+        }
+    }
+    ImGui::SameLine();
+    if( ImGui::Button("Color flappy") ) {
+        for(int k=0; k<skinning.deformed.position.size(); ++k) {
+            skinning.deformed.color[k] = {weight_flappy[k],0,0,0};
+            character_visual.update_color(skinning.deformed.color);
+        }
+    }
+    ImGui::SameLine();
+    if( ImGui::Button("Color squashy") ) {
+        for(int k=0; k<skinning.deformed.position.size(); ++k) {
+            skinning.deformed.color[k] = {0,weight_squashy[k],0,0};
+            character_visual.update_color(skinning.deformed.color);
+        }
+    }
 
     // Start and stop animation
     bool const stop  = ImGui::Button("Stop"); ImGui::SameLine();
@@ -385,6 +412,16 @@ void scene_model::resize_structure()
     skeleton_velocity_tracker.resize(skeleton_current.size());
     skeleton_rest_pose = local_to_global(skeleton.rest_pose, skeleton.connectivity);
     skeleton_angular_velocity_tracker.resize(skeleton_current.size());
+
+    if(weight_squashy.size()!=skinning.rest_pose.size()){
+        weight_squashy.resize(skinning.rest_pose.size());
+        weight_squashy.fill(1.0f);
+    }
+    if(weight_flappy.size()!=skinning.rest_pose.size()){
+        weight_flappy.resize(skinning.rest_pose.size());
+        weight_flappy.fill(0.0f);
+    }
+
 }
 
 void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_structure& , gui_structure& )
@@ -416,7 +453,7 @@ void scene_model::setup_data(std::map<std::string,GLuint>& shaders, scene_struct
     frame.shader = shaders["mesh"];
 
     // Load initial model
-    load_sphere_data(skeleton, skinning, character_visual, timer, shader_mesh);
+    load_sphere_data(skeleton, skinning, weight_flappy, character_visual, timer, shader_mesh);
 
     resize_structure();
 
@@ -430,8 +467,6 @@ void scene_model::mouse_move(scene_structure& scene, GLFWwindow* window)
     // Check that the mouse is clicked (drag and drop)
     const bool mouse_click_left  = glfw_mouse_pressed_left(window);
     const bool key_shift = glfw_key_shift_pressed(window);
-
-
 
     // Selection
     if(!mouse_click_left && key_shift)
@@ -476,7 +511,6 @@ void scene_model::mouse_move(scene_structure& scene, GLFWwindow* window)
 
         vec3& p0 = skeleton_local_current[picked_object].p;
         p0 += tr;
-
 
     }
 

@@ -9,6 +9,7 @@
 
 
 
+
 // Connectivity information of a joint in the hierarchy
 //  Store parent index, and the current name
 struct joint_connectivity
@@ -55,7 +56,7 @@ struct skinning_structure
     vcl::mesh deformed;                                       // Deformed mesh
 };
 
-enum gui_parameters_display_type {display_sphere, display_character, display_cylinder, display_bar};
+enum gui_parameters_display_type {display_sphere, display_character, display_cylinder_bending, display_cylinder_translate, display_rondinella, display_bar};
 struct gui_parameters
 {
     bool display_skeleton_bones;
@@ -96,12 +97,19 @@ struct scene_model : scene_base
     vcl::buffer<vcl::velocity_tracker_structure<quaternion> > skeleton_angular_velocity_tracker;
 
     bool is_interactive = true;
+    bool is_flapping = true;
+    bool is_speed = false;
+    bool is_acceleration = true;
+    vcl::buffer<float> weight_flappy;
+    vcl::buffer<float> weight_squashy;
 
-    float scaling_power = 1.0f;
+    float flapping_power  = 1.0f;
+    float squashing_power = 1.0f;
 
     void compute_skinning();
     void compute_skinning_dual_quaternion();
     void squashy_skinning();
+    void flappy_skinning();
     void resize_structure(); // resize all skeleton when changing states
 
     vcl::segment_drawable_immediate_mode segment_drawer;

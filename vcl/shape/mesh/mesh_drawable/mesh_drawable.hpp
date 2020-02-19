@@ -36,6 +36,8 @@ public:
      * Warning: new_normal is expected to have the same size (or less) than the initialized one */
     void update_normal(const vcl::buffer<vec3>& new_normal);
 
+    void update_color(const vcl::buffer<vec4>& new_color);
+
 
     /** Data attributes: VAO and VBO as well as the number of triangle */
     mesh_drawable_gpu_data data;

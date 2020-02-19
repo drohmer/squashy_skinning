@@ -24,6 +24,8 @@ struct mesh_drawable_gpu_data {
      * Warning: new_normal is expected to have the same size (or less) than the initialized one */
     void update_normal(const buffer<vec3>& new_normal);
 
+    void update_color(const buffer<vec4>& new_color);
+
 
     GLuint vao;
     unsigned int number_triangles;

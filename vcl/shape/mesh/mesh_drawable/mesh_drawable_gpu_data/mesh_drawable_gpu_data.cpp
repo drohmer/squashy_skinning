@@ -104,6 +104,15 @@ void mesh_drawable_gpu_data::update_normal(const buffer<vec3>& new_normal)
     glBufferSubData(GL_ARRAY_BUFFER,0,GLsizeiptr(new_normal.size()*sizeof(float)*3),&new_normal[0]);
 }
 
+void mesh_drawable_gpu_data::update_color(const buffer<vec4>& new_color)
+{
+    glBindBuffer(GL_ARRAY_BUFFER,vbo_color);
+    assert(glIsBuffer(vbo_color));
+
+    glBufferSubData(GL_ARRAY_BUFFER,0,GLsizeiptr(new_color.size()*sizeof(float)*4),&new_color[0]);
+}
+
+
 void draw(const mesh_drawable_gpu_data& gpu_data )
 {
     // Doesn't draw if the structure hasn't been initialized

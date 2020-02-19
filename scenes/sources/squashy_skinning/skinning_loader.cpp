@@ -7,8 +7,9 @@
 using namespace vcl;
 
 
-void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader)
+void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::buffer<float>& weight_flappy, vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
     skeleton.connectivity = { {-1,"joint_0"} };
 
     quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);      // no rotation
@@ -64,6 +65,9 @@ void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning
         }
     }
 
+    weight_flappy.resize(sphere.position.size());
+    weight_flappy.fill(0.0f);
+
     skinning.rest_pose = sphere.position;
     skinning.rest_pose_normal = sphere.normal;
     skinning.deformed  = sphere;
@@ -77,15 +81,127 @@ void load_sphere_data(skeleton_structure& skeleton, skinning_structure& skinning
     timer.t_max = 2.0f;
 }
 
-void load_diagonal_translate_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
+void load_rondinella_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::buffer<float>& weight_flappy, vcl::buffer<float>& weight_squashy,vcl::mesh_drawable& shape_visual, vcl::timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
+    skeleton.connectivity = { {-1,"joint_0"} };
+
+    quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);      // no rotation
+
+    joint_geometry g0   = {{0.0f,0.0f,0.0f},q0};
+    joint_geometry g1   = {{0.0f,0.0f,-1.0f},q0};
+    joint_geometry g2   = {{0.0f,0.0f,0.0f},q0};
+
+    // Skeleton at rest shape
+    skeleton.rest_pose = { g0 };
+
+    std::vector<joint_geometry_time> anim_g0 = {{0,g0},{1,g1},{2,g2}};
+
+    skeleton.anim = { anim_g0 };
+
+
+    // Cylinder shape
+    mesh sphere;
+    sphere = mesh_load_file_obj("rondinella.obj");
+
+    for(int k=0; k<sphere.position.size(); ++k)
+        sphere.position[k] /= 5.0f;
+
+    mat3 R = rotation_from_axis_angle_mat3({1,0,0}, -M_PI/2.0f);
+    for(int k=0; k<sphere.position.size(); ++k)
+        sphere.position[k] = R*sphere.position[k];
+
+    sphere.fill_empty_fields();
+
+//    const size_t N=50;
+//    const float r = 0.1f;
+//    skinning.influence.clear();
+//    for(size_t ku=0; ku<N; ++ku)
+//    {
+//        for(size_t kv=0; kv<N; ++kv)
+//        {
+//            const float u = ku/float(N-1.0f);
+//            const float v = kv/float(N);
+
+//            const float theta = float(M_PI)* v;
+//            const float phi = 2*float(M_PI)* u;
+
+//            const float x = r * std::sin(theta) * std::cos(phi);
+//            const float y = r * std::sin(theta) * std::sin(phi);
+//            const float z = r * std::cos(theta);
+//            const vec3 p = {x,y,z};
+
+//            const vec3 n = p / norm(p);
+
+//            sphere.position.push_back(p);
+//            sphere.normal.push_back(n);
+//        }
+//    }
+//    sphere.connectivity = connectivity_grid(N,N,false,true);
+
+
+    // Skinning weights
+    int const N = sphere.position.size();
+    for(size_t k=0; k<N; ++k)
+    {
+        skinning.influence.push_back( {{0, 1.0f}} );
+    }
+
+    weight_flappy.resize(0);
+    weight_squashy.resize(0);
+    for(size_t k=0; k<N; ++k)
+    {
+        const vec3& p = sphere.position[k];
+
+        const vec3& pc = p-vec3(0,0.05f,0);
+
+
+        float distance = norm(pc);
+
+
+
+        float w_flappy = 0.0f;
+        float w_squashy = 0.0f;
+
+        float threshold = 0.25f;
+        if(distance<threshold) {
+            w_flappy  = 0.0f;
+            w_squashy = 1.0f;
+        }
+        else{
+            float s = 1.0f/(1 + 10*(distance-threshold));
+            w_squashy = s;
+            w_flappy = 1-s;
+/*            w_flappy = (distance-thet)
+                    w_squashy
+            w = 5*(n-threshold);
+            w_squashy = 0.0f;*///1.0f/(n-threshold+1);
+        }
+        weight_flappy.push_back(w_flappy);
+        weight_squashy.push_back(w_squashy);
+    }
+
+    skinning.rest_pose = sphere.position;
+    skinning.rest_pose_normal = sphere.normal;
+    skinning.deformed  = sphere;
+
+
+    shape_visual.clear();
+    shape_visual = mesh_drawable(sphere);
+    shape_visual.shader = shader;
+
+    timer = timer_interval();
+    timer.t_max = 2.0f;
+}
+
+void load_diagonal_translate_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::buffer<float>& weight_flappy, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
+{
+    skinning.influence = {};
     skeleton.connectivity = { {-1,"joint_0"},
                               { 0,"joint_1"},
                               { 1,"joint_2"} };
 
     quaternion q0 = quaternion::axis_angle(normalize(vec3{0,0,1}),0.0f);       // no rotation
-
-
 
     joint_geometry g0_0   = {{ 0.0f,0.0f,0.0f},q0}; // First joint
     joint_geometry g0_1   = {{ 0.25f,0.25f,0.0f},q0};
@@ -128,6 +244,9 @@ void load_diagonal_translate_cylinder_data(skeleton_structure& skeleton, skinnin
     cylinder.connectivity = connectivity_grid(N,N,false,true);
 
 
+    weight_flappy.resize(cylinder.position.size());
+    weight_flappy.fill(0.0f);
+
     // Skinning weights
     for(size_t ku=0; ku<N; ++ku)
     {
@@ -166,6 +285,7 @@ void load_diagonal_translate_cylinder_data(skeleton_structure& skeleton, skinnin
 
 void load_bending_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
     skeleton.connectivity = { {-1,"joint_0"},
                               { 0,"joint_1"},
                               { 1,"joint_2"} };
@@ -255,6 +375,7 @@ void load_bending_cylinder_data(skeleton_structure& skeleton, skinning_structure
 
 void load_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
     skeleton.connectivity = { {-1,"joint_0"},
                               { 0,"joint_1"},
                               { 1,"joint_2"} };
@@ -344,6 +465,7 @@ void load_cylinder_data(skeleton_structure& skeleton, skinning_structure& skinni
 
 void load_rectangle_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
     skeleton.connectivity = { {-1,"joint_0"},
                               { 0,"joint_1"},
                               { 1,"joint_2"} };
@@ -406,8 +528,9 @@ void load_rectangle_data(skeleton_structure& skeleton, skinning_structure& skinn
 
 
 
-void load_character_data(skeleton_structure& skeleton, skinning_structure& skinning, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
+void load_character_data(skeleton_structure& skeleton, skinning_structure& skinning, vcl::buffer<float>& weight_flappy, mesh_drawable& shape_visual, timer_interval& timer, GLuint shader)
 {
+    skinning.influence = {};
     timer = timer_interval();
 
     const float scaling = 0.005f;
@@ -440,6 +563,10 @@ void load_character_data(skeleton_structure& skeleton, skinning_structure& skinn
     skinning.rest_pose = character.position;
     skinning.rest_pose_normal = character.normal;
     skinning.deformed  = character;
+
+
+    weight_flappy.resize(character.position.size());
+    weight_flappy.fill(1.0f);
 
     shape_visual.texture_id = texture_id;
 
